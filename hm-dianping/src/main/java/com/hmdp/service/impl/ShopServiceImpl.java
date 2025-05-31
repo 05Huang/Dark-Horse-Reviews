@@ -13,10 +13,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
-import static com.hmdp.utils.RedisConstants.CACHE_SHOP_KEY;
-import static com.hmdp.utils.RedisConstants.CACHE_SHOP_TTL;
+import static com.hmdp.utils.RedisConstants.*;
 
 /**
  * <p>
@@ -29,30 +29,43 @@ import static com.hmdp.utils.RedisConstants.CACHE_SHOP_TTL;
 @Service
 public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IShopService {
 
+
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
     @Override
     public Result queryById(Long id) {
+        String key = CACHE_SHOP_KEY + id;
         //1.从redis根据id查数据
-        String shopJson = stringRedisTemplate.opsForValue().get(CACHE_SHOP_KEY + id);
+        String shopJson = stringRedisTemplate.opsForValue().get(key);
         //2.判断是否存在
+        Shop shop = null;
         if (StrUtil.isNotBlank(shopJson)) {
             //注意，这里从redis中获取的value是json字符串，需要转换成对象才能返回。
-            Shop shop = JSONUtil.toBean(shopJson, Shop.class);
+            shop = JSONUtil.toBean(shopJson, Shop.class);
             //3.若存在直接返回数据
             return Result.ok(shop);
         }
-
-        //4.从数据库中根据id查数据
-        Shop shop = getById(id);
-        //5.若不存在，返回错误信息
-        if (shop == null) {
+        // 2.2 缓存未命中，判断缓存中查询的数据是否是空字符串(isNotBlank把null和空字符串给排除了)
+        if (Objects.nonNull(shopJson)){
+            // 2.2.1 当前数据是空字符串（说明该数据是之前缓存的空对象），直接返回失败信息
             return Result.fail("店铺不存在");
         }
-        //6.将数据写入redis
-        stringRedisTemplate.opsForValue().set(CACHE_SHOP_KEY + id, JSONUtil.toJsonStr(shop));
-        stringRedisTemplate.expire(CACHE_SHOP_KEY + id, CACHE_SHOP_TTL, TimeUnit.MINUTES);
+        // 2.2.2 当前数据是null，则从数据库中查询店铺数据
+        shop = this.getById(id);
+
+        // 2.2.2 当前数据是null，则从数据库中查询店铺数据
+        shop = this.getById(id);
+
+        // 4、判断数据库是否存在店铺数据
+        if (Objects.isNull(shop)) {
+            // 4.1 数据库中不存在，缓存空对象（解决缓存穿透），返回失败信息
+            stringRedisTemplate.opsForValue().set(key, "", CACHE_NULL_TTL, TimeUnit.MINUTES);
+            return Result.fail("店铺不存在");
+        }
+        // 4.2 数据库中存在，重建缓存，并返回店铺数据
+        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(shop),
+                CACHE_SHOP_TTL, TimeUnit.MINUTES);
         //7.返回数据
         return Result.ok(shop);
     }
