@@ -52,10 +52,27 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             // 库存不足
             return Result.fail("库存不足！");
         }
-        //5，扣减库存
+        // 5.一人一单逻辑
+        // 5.1.用户id
+        Long userId = UserHolder.getUser().getId();
+        int count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
+        // 5.2.判断是否存在
+        if (count > 0) {
+            // 用户已经购买过了
+            return Result.fail("用户已经购买过一次！");
+        }
+        //5，扣减库存(普通)
+//        boolean success = seckillVoucherService.update()
+//                .setSql("stock= stock -1")
+//                .eq("voucher_id", voucherId).update();
+        //5.扣减库存
         boolean success = seckillVoucherService.update()
                 .setSql("stock= stock -1")
-                .eq("voucher_id", voucherId).update();
+                .eq("voucher_id", voucherId).gt("stock",0)
+                . update(); //where id = ? and stock > 0
+//        boolean success = seckillVoucherService.update()
+//                .setSql("stock= stock -1") //set stock = stock -1
+//                .eq("voucher_id", voucherId).update(); //where id = ？ and stock = ?
         if (!success) {
             //扣减库存
             return Result.fail("库存不足！");
@@ -66,7 +83,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         long orderId = redisIdWorker.nextId("order");
         voucherOrder.setId(orderId);
         // 6.2.用户id
-        Long userId = UserHolder.getUser().getId();
+        userId = UserHolder.getUser().getId();
         voucherOrder.setUserId(userId);
         // 6.3.代金券id
         voucherOrder.setVoucherId(voucherId);
